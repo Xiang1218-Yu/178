@@ -86,6 +86,14 @@
               <span class="comp-desc">展示最终运行结果</span>
             </div>
           </div>
+
+          <div class="component-card" draggable="true" data-type="data-merge">
+            <div class="comp-icon merge">🔗</div>
+            <div class="comp-info">
+              <span class="comp-title">数据合并</span>
+              <span class="comp-desc">合并多个数据源</span>
+            </div>
+          </div>
         </div>
       </aside>
 
@@ -146,6 +154,55 @@
       </div>
     </div>
   </div>
+
+  <!-- Data Merge Modal -->
+  <div id="data-merge-modal-overlay" class="modal-overlay hidden">
+    <div class="modal modal-wide">
+      <div class="modal-header">
+        <h3>配置数据合并</h3>
+        <button class="close-data-merge-modal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="data-merge-input-count">输入源数量</label>
+          <select id="data-merge-input-count">
+            <option value="2">2 个输入源</option>
+            <option value="3">3 个输入源</option>
+            <option value="4">4 个输入源</option>
+            <option value="5">5 个输入源</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="data-merge-mode">合并模式</label>
+          <select id="data-merge-mode">
+            <option value="array-concat">数组拼接</option>
+            <option value="object-merge">对象合并</option>
+          </select>
+        </div>
+
+        <div class="form-group" id="data-merge-field-mappings-container">
+          <label>字段映射规则 (对象合并模式)</label>
+          <div id="data-merge-field-mappings" class="field-mappings-container">
+            <p class="field-mappings-hint">选择对象合并模式后，配置各输入源字段的映射关系</p>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="data-merge-object-mode">对象合并策略</label>
+          <select id="data-merge-object-mode">
+            <option value="shallow">浅合并</option>
+            <option value="deep">深合并</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button id="btn-data-merge-modal-cancel" class="btn text">取消</button>
+        <button id="btn-data-merge-modal-save" class="btn primary">保存配置</button>
+      </div>
+    </div>
+  </div>
+
   <div id="toast" class="toast hidden">工作流已保存</div>
 
   <script type="module" src="/src/main.js"></script>

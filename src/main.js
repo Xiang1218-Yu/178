@@ -34,6 +34,17 @@ const closeModal = document.querySelector('.close-modal');
 const judgeOperator = document.getElementById('judge-operator');
 const judgeValue = document.getElementById('judge-value');
 
+// Data Merge Modal Elements
+const dataMergeModal = document.getElementById('data-merge-modal-overlay');
+const btnDataMergeModalCancel = document.getElementById('btn-data-merge-modal-cancel');
+const btnDataMergeModalSave = document.getElementById('btn-data-merge-modal-save');
+const closeDataMergeModal = document.querySelector('.close-data-merge-modal');
+const dataMergeInputCount = document.getElementById('data-merge-input-count');
+const dataMergeMode = document.getElementById('data-merge-mode');
+const dataMergeObjectMode = document.getElementById('data-merge-object-mode');
+const dataMergeFieldMappingsContainer = document.getElementById('data-merge-field-mappings-container');
+const dataMergeFieldMappings = document.getElementById('data-merge-field-mappings');
+
 // Confirm Modal Elements
 const confirmModal = document.getElementById('confirm-modal-overlay');
 const confirmMsg = document.getElementById('confirm-message');
@@ -110,6 +121,19 @@ function setupEventListeners() {
   closeModal.addEventListener('click', hideModal);
   btnModalSave.addEventListener('click', saveNodeConfig);
 
+  // 7. Data Merge Modal
+  btnDataMergeModalCancel.addEventListener('click', hideDataMergeModal);
+  closeDataMergeModal.addEventListener('click', hideDataMergeModal);
+  btnDataMergeModalSave.addEventListener('click', saveDataMergeConfig);
+  
+  dataMergeMode.addEventListener('change', () => {
+    updateFieldMappingsVisibility();
+  });
+  
+  dataMergeInputCount.addEventListener('change', () => {
+    updateFieldMappingsUI();
+  });
+
   // Confirm Modal Listeners
   btnConfirmOk.addEventListener('click', () => {
     if (pendingConfirmCallback) pendingConfirmCallback();
@@ -140,6 +164,11 @@ function createNode(type, x, y, id = null, data = {}) {
   } else if (type === 'judge') {
     node.data.operator = node.data.operator || '>';
     node.data.threshold = node.data.threshold || 0;
+  } else if (type === 'data-merge') {
+    node.data.inputCount = node.data.inputCount || 2;
+    node.data.mergeMode = node.data.mergeMode || 'array-concat';
+    node.data.objectMergeMode = node.data.objectMergeMode || 'shallow';
+    node.data.fieldMappings = node.data.fieldMappings || [];
   }
 
   state.nodes.push(node);
@@ -158,7 +187,8 @@ function renderNode(node) {
     'input-num': { icon: '#', title: '数字输入' },
     'input-text': { icon: 'Aa', title: '文字输入' },
     'judge': { icon: '⚙️', title: '逻辑判断' },
-    'output': { icon: '👁️', title: '输出结果' }
+    'output': { icon: '👁️', title: '输出结果' },
+    'data-merge': { icon: '🔗', title: '数据合并' }
   };
   const info = meta[node.type];
 
@@ -224,16 +254,44 @@ function renderNode(node) {
     resultBox.id = `res-${node.id}`;
     resultBox.textContent = node.data.result !== undefined ? node.data.result : '等待运行...';
     body.appendChild(resultBox);
+  } else if (node.type === 'data-merge') {
+    const btn = document.createElement('button');
+    btn.className = 'btn secondary';
+    btn.style.width = '100%';
+    const modeText = node.data.mergeMode === 'array-concat' ? '数组拼接' : '对象合并';
+    btn.textContent = `配置: ${node.data.inputCount}个输入 / ${modeText}`;
+    btn.addEventListener('click', () => openDataMergeConfig(node));
+    body.appendChild(btn);
+    
+    const infoText = document.createElement('div');
+    infoText.className = 'node-merge-info';
+    const strategyText = node.data.objectMergeMode === 'deep' ? '深合并' : '浅合并';
+    infoText.textContent = `策略: ${node.data.mergeMode === 'object-merge' ? strategyText : '顺序拼接'}`;
+    body.appendChild(infoText);
   }
 
   el.appendChild(body);
 
-  // Input Port (Left) - Not for sources
+  // Input Ports (Left) - Not for sources
   if (node.type !== 'input-num' && node.type !== 'input-text') {
-    const inPort = document.createElement('div');
-    inPort.className = 'port input-port';
-    inPort.dataset.nodeId = node.id;
-    el.appendChild(inPort);
+    if (node.type === 'data-merge') {
+      const inputCount = node.data.inputCount || 2;
+      for (let i = 0; i < inputCount; i++) {
+        const inPort = document.createElement('div');
+        inPort.className = 'port input-port';
+        inPort.dataset.nodeId = node.id;
+        inPort.dataset.handle = `input-${i}`;
+        inPort.title = `输入源 ${i + 1}`;
+        const topPosition = 20 + (i * 25);
+        inPort.style.top = `${topPosition}%`;
+        el.appendChild(inPort);
+      }
+    } else {
+      const inPort = document.createElement('div');
+      inPort.className = 'port input-port';
+      inPort.dataset.nodeId = node.id;
+      el.appendChild(inPort);
+    }
   }
 
   // Output Ports (Right/Branching)
@@ -295,7 +353,6 @@ function completeConnection(targetNodeId) {
     const targetNode = state.nodes.find(n => n.id === targetNodeId);
     if (!targetNode) return;
 
-    // Prevent connecting to Input nodes (they have no inputs)
     if (targetNode.type === 'input-num' || targetNode.type === 'input-text') {
       showToast('该组件不能作为输入目标');
       state.connecting.active = false;
@@ -303,11 +360,36 @@ function completeConnection(targetNodeId) {
       return;
     }
 
-    // Check if exists (considering handle)
+    let targetHandle = null;
+
+    if (targetNode.type === 'data-merge') {
+      const inputCount = targetNode.data.inputCount || 2;
+      const existingConnections = state.connections.filter(c => c.to === targetNodeId);
+      const usedHandles = existingConnections.map(c => c.targetHandle);
+
+      targetHandle = null;
+      for (let i = 0; i < inputCount; i++) {
+        const handleId = `input-${i}`;
+        if (!usedHandles.includes(handleId)) {
+          targetHandle = handleId;
+          break;
+        }
+      }
+
+      if (!targetHandle) {
+        showToast('所有输入端口已被占用');
+        state.connecting.active = false;
+        renderTempLine(null, null);
+        document.querySelectorAll('.node.highlight').forEach(n => n.classList.remove('highlight'));
+        return;
+      }
+    }
+
     const exists = state.connections.find(c =>
       c.from === state.connecting.startNodeId &&
       c.to === targetNodeId &&
-      c.sourceHandle === state.connecting.sourceHandle
+      c.sourceHandle === state.connecting.sourceHandle &&
+      c.targetHandle === targetHandle
     );
 
     if (!exists) {
@@ -315,7 +397,8 @@ function completeConnection(targetNodeId) {
         id: `conn-${Date.now()}`,
         from: state.connecting.startNodeId,
         to: targetNodeId,
-        sourceHandle: state.connecting.sourceHandle
+        sourceHandle: state.connecting.sourceHandle,
+        targetHandle: targetHandle
       });
       updateConnections();
     } else {
@@ -399,7 +482,7 @@ function updateConnections() {
     if (!fromNode || !toNode) return;
 
     const startPoint = getPortPosition(conn.from, 'output', conn.sourceHandle);
-    const endPoint = getPortPosition(conn.to, 'input');
+    const endPoint = getPortPosition(conn.to, 'input', conn.targetHandle);
 
     if (startPoint && endPoint) {
       const path = createPath(startPoint.x, startPoint.y, endPoint.x, endPoint.y);
@@ -430,12 +513,14 @@ function getPortPosition(nodeId, type, handle = null) {
   if (!nodeEl) return null;
 
   let selector = `.${type}-port`;
-  // Narrow down if handle is specified and not default
-  if (type === 'output' && handle && handle !== 'default') {
+  if (handle && handle !== 'default') {
     selector += `[data-handle="${handle}"]`;
   }
 
-  const portEl = nodeEl.querySelector(selector);
+  let portEl = nodeEl.querySelector(selector);
+  if (!portEl) {
+    portEl = nodeEl.querySelector(`.${type}-port`);
+  }
   if (!portEl) return null;
 
   const wsRect = workspace.getBoundingClientRect();
@@ -483,6 +568,41 @@ function renderTempLine(endX, endY) {
 
 // --- Logic: Execution ---
 
+/**
+ * 将值格式化为可读的字符串，支持循环引用检测
+ * @param {*} value 需要格式化的值
+ * @returns {string} 格式化后的字符串
+ */
+function formatDisplayValue(value) {
+  if (value === null || value === undefined) {
+    return '未触发/无值';
+  }
+  
+  if (typeof value !== 'object') {
+    return String(value);
+  }
+
+  try {
+    const seen = new WeakSet();
+    const result = JSON.stringify(value, (key, val) => {
+      if (val !== null && typeof val === 'object') {
+        if (seen.has(val)) {
+          return '[Circular Reference]';
+        }
+        seen.add(val);
+      }
+      return val;
+    }, 2);
+    
+    if (result.length > 500) {
+      return result.substring(0, 500) + '\n...(已截断)';
+    }
+    return result;
+  } catch (e) {
+    return '[无法序列化的数据]';
+  }
+}
+
 function runWorkflow() {
   showToast('正在运行工作流...');
 
@@ -502,15 +622,10 @@ function runWorkflow() {
     setTimeout(() => {
       outputNodes.forEach(outNode => {
         const val = evaluateNode(outNode.id);
-        // Check for explicit blocked state (null means flow stopped)
-        let displayVal = val;
-        if (val === null || val === undefined) {
-          displayVal = '未触发/无值';
-        }
-
-        outNode.data.result = displayVal;
+        
+        outNode.data.result = val;
         const el = document.getElementById(`res-${outNode.id}`);
-        if (el) el.textContent = String(displayVal);
+        if (el) el.textContent = formatDisplayValue(val);
       });
       showToast('运行完成');
     }, 100);
@@ -521,6 +636,190 @@ function runWorkflow() {
   }
 }
 
+/**
+ * 执行深度克隆操作，支持循环引用处理
+ * @param {*} obj 需要克隆的对象
+ * @param {WeakMap} visited 已访问对象映射表（用于处理循环引用）
+ * @returns {*} 克隆后的对象
+ */
+function deepClone(obj, visited = new WeakMap()) {
+  if (obj === null || typeof obj !== 'object') {
+    return obj;
+  }
+
+  if (visited.has(obj)) {
+    return visited.get(obj);
+  }
+
+  if (Array.isArray(obj)) {
+    const clonedArr = [];
+    visited.set(obj, clonedArr);
+    for (const item of obj) {
+      clonedArr.push(deepClone(item, visited));
+    }
+    return clonedArr;
+  }
+
+  const clonedObj = {};
+  visited.set(obj, clonedObj);
+  for (const key in obj) {
+    if (Object.prototype.hasOwnProperty.call(obj, key)) {
+      clonedObj[key] = deepClone(obj[key], visited);
+    }
+  }
+  return clonedObj;
+}
+
+/**
+ * 执行对象深合并操作，支持循环引用处理
+ * @param {object} target 目标对象
+ * @param {object} source 源对象
+ * @param {WeakMap} visitedTarget 目标对象访问记录
+ * @param {WeakMap} visitedSource 源对象访问记录
+ * @returns {object} 合并后的对象
+ */
+function deepMergeObjects(target, source, visitedTarget = new WeakMap(), visitedSource = new WeakMap()) {
+  const result = deepClone(target);
+  
+  for (const key in source) {
+    if (Object.prototype.hasOwnProperty.call(source, key)) {
+      const sourceValue = source[key];
+      const targetValue = result[key];
+      
+      if (
+        sourceValue !== null &&
+        typeof sourceValue === 'object' &&
+        !Array.isArray(sourceValue) &&
+        targetValue !== null &&
+        typeof targetValue === 'object' &&
+        !Array.isArray(targetValue)
+      ) {
+        if (visitedSource.has(sourceValue)) {
+          result[key] = visitedSource.get(sourceValue);
+        } else {
+          const mergedSubObj = {};
+          visitedSource.set(sourceValue, mergedSubObj);
+          visitedTarget.set(targetValue, mergedSubObj);
+          
+          const merged = deepMergeObjects(targetValue, sourceValue, visitedTarget, visitedSource);
+          result[key] = merged;
+        }
+      } else {
+        result[key] = deepClone(sourceValue);
+      }
+    }
+  }
+  return result;
+}
+
+/**
+ * 应用字段映射规则到输入数据
+ * @param {*} inputData 原始输入数据
+ * @param {Array} fieldMappings 字段映射规则数组
+ * @param {number} inputIndex 输入源索引
+ * @returns {*} 应用映射后的数据
+ */
+function applyFieldMappings(inputData, fieldMappings, inputIndex) {
+  if (!inputData || typeof inputData !== 'object' || Array.isArray(inputData)) {
+    return inputData;
+  }
+
+  const mappingsForInput = fieldMappings.filter(m => m.inputIndex === inputIndex);
+  if (mappingsForInput.length === 0) {
+    return inputData;
+  }
+
+  const result = {};
+  for (const mapping of mappingsForInput) {
+    const { sourceField, targetField } = mapping;
+    if (sourceField && targetField && sourceField in inputData) {
+      result[targetField] = inputData[sourceField];
+    }
+  }
+
+  if (Object.keys(result).length === 0) {
+    return inputData;
+  }
+  return result;
+}
+
+/**
+ * 合并多个数据源
+ * @param {Array} inputDataArray 输入数据数组
+ * @param {string} mergeMode 合并模式 ('array-concat' 或 'object-merge')
+ * @param {string} objectMergeMode 对象合并策略 ('shallow' 或 'deep')
+ * @param {Array} fieldMappings 字段映射规则
+ * @returns {*} 合并后的结果
+ */
+function mergeDataSources(inputDataArray, mergeMode, objectMergeMode, fieldMappings) {
+  const validInputs = inputDataArray.filter(item => item !== null && item !== undefined);
+
+  if (validInputs.length === 0) {
+    return null;
+  }
+
+  if (mergeMode === 'array-concat') {
+    const result = [];
+    for (let i = 0; i < validInputs.length; i++) {
+      const data = validInputs[i].data;
+      const inputIndex = validInputs[i].index;
+      const mappedData = applyFieldMappings(data, fieldMappings, inputIndex);
+      
+      if (Array.isArray(mappedData)) {
+        result.push(...mappedData);
+      } else {
+        result.push(mappedData);
+      }
+    }
+    return result;
+  } else if (mergeMode === 'object-merge') {
+    let result = {};
+    for (let i = 0; i < validInputs.length; i++) {
+      const data = validInputs[i].data;
+      const inputIndex = validInputs[i].index;
+      const mappedData = applyFieldMappings(data, fieldMappings, inputIndex);
+      
+      let dataToMerge;
+      if (mappedData && typeof mappedData === 'object' && !Array.isArray(mappedData)) {
+        dataToMerge = mappedData;
+      } else {
+        const keyName = `input${inputIndex}`;
+        dataToMerge = {};
+        dataToMerge[keyName] = mappedData;
+      }
+      
+      if (objectMergeMode === 'deep') {
+        result = deepMergeObjects(result, dataToMerge);
+      } else {
+        result = { ...result, ...dataToMerge };
+      }
+    }
+    return result;
+  }
+
+  return null;
+}
+
+/**
+ * 处理来自逻辑判断节点的输入
+ * @param {*} inputData 输入数据
+ * @param {object} conn 连接对象
+ * @returns {*} 处理后的数据
+ */
+function processJudgeInput(inputData, conn) {
+  if (inputData && typeof inputData === 'object' && 'isTrue' in inputData) {
+    const { value, isTrue } = inputData;
+    if (conn.sourceHandle === 'true') {
+      return isTrue ? value : null;
+    }
+    if (conn.sourceHandle === 'false') {
+      return !isTrue ? value : null;
+    }
+    return value;
+  }
+  return null;
+}
+
 function evaluateNode(nodeId, visited = new Set()) {
   if (visited.has(nodeId)) return null;
   visited.add(nodeId);
@@ -528,45 +827,61 @@ function evaluateNode(nodeId, visited = new Set()) {
   const node = state.nodes.find(n => n.id === nodeId);
   if (!node) return null;
 
-  // 1. Inputs: Return raw value
   if (node.type === 'input-num' || node.type === 'input-text') {
     return node.data.value;
   }
 
-  // 2. Find input source connection
-  const conn = state.connections.find(c => c.to === nodeId);
-  if (!conn) return null; // No input
+  const incomingConnections = state.connections.filter(c => c.to === nodeId);
 
-  const inputData = evaluateNode(conn.from, visited);
-
-  // 3. Check source type for branching reasoning
-  const sourceNode = state.nodes.find(n => n.id === conn.from);
-
-  if (sourceNode.type === 'judge') {
-    // If input comes from a Judge, we expect an object: { value, isTrue }
-    if (inputData && typeof inputData === 'object' && 'isTrue' in inputData) {
-      const { value, isTrue } = inputData;
-
-      // Branching Logic
-      if (conn.sourceHandle === 'true') {
-        return isTrue ? value : null; // Pass only if True
+  if (node.type === 'data-merge') {
+    const inputDataArray = [];
+    for (const conn of incomingConnections) {
+      const inputData = evaluateNode(conn.from, new Set(visited));
+      
+      const sourceNode = state.nodes.find(n => n.id === conn.from);
+      let processedData = inputData;
+      
+      if (sourceNode && sourceNode.type === 'judge') {
+        processedData = processJudgeInput(inputData, conn);
       }
-      if (conn.sourceHandle === 'false') {
-        return !isTrue ? value : null; // Pass only if False
+      
+      if (processedData !== null && processedData !== undefined) {
+        let inputIndex = 0;
+        if (conn.targetHandle && conn.targetHandle.startsWith('input-')) {
+          inputIndex = parseInt(conn.targetHandle.split('-')[1], 10);
+        }
+        inputDataArray.push({
+          index: inputIndex,
+          data: processedData
+        });
       }
-      // Fallback for default handle (if any)
-      return value;
     }
-    return null; // Judge failed to return valid struct
+
+    inputDataArray.sort((a, b) => a.index - b.index);
+
+    return mergeDataSources(
+      inputDataArray,
+      node.data.mergeMode || 'array-concat',
+      node.data.objectMergeMode || 'shallow',
+      node.data.fieldMappings || []
+    );
   }
 
-  // If input data is null (blocked by previous chain), propagate null
+  if (incomingConnections.length === 0) {
+    return null;
+  }
+
+  const conn = incomingConnections[0];
+  const inputData = evaluateNode(conn.from, visited);
+  const sourceNode = state.nodes.find(n => n.id === conn.from);
+
+  if (sourceNode && sourceNode.type === 'judge') {
+    return processJudgeInput(inputData, conn);
+  }
+
   if (inputData === null) return null;
 
-  // 4. Current Node Processing
   if (node.type === 'judge') {
-    // Judge expects a Value (Number compatible usually) to compare
-    // Logic
     const op = node.data.operator;
     const th = node.data.threshold;
     let res = false;
@@ -581,7 +896,6 @@ function evaluateNode(nodeId, visited = new Set()) {
       case '<=': res = numIn <= numTh; break;
     }
 
-    // Return structured result for next consumer
     return { value: inputData, isTrue: res };
   }
 
@@ -659,6 +973,202 @@ function saveNodeConfig() {
     }
   }
   hideModal();
+}
+
+/**
+ * 打开数据合并配置模态框
+ * @param {object} node 数据合并节点对象
+ */
+function openDataMergeConfig(node) {
+  state.dataMergeConfigNodeId = node.id;
+  dataMergeInputCount.value = node.data.inputCount || 2;
+  dataMergeMode.value = node.data.mergeMode || 'array-concat';
+  dataMergeObjectMode.value = node.data.objectMergeMode || 'shallow';
+  
+  updateFieldMappingsVisibility();
+  updateFieldMappingsUI(node.data.fieldMappings || []);
+  
+  dataMergeModal.classList.remove('hidden');
+}
+
+/**
+ * 关闭数据合并配置模态框
+ */
+function hideDataMergeModal() {
+  dataMergeModal.classList.add('hidden');
+  state.dataMergeConfigNodeId = null;
+}
+
+/**
+ * 根据合并模式更新字段映射区域的可见性
+ */
+function updateFieldMappingsVisibility() {
+  if (dataMergeMode.value === 'object-merge') {
+    dataMergeFieldMappingsContainer.style.display = 'block';
+  } else {
+    dataMergeFieldMappingsContainer.style.display = 'none';
+  }
+}
+
+/**
+ * 创建单个字段映射项的 DOM 元素
+ * @param {number} inputIndex 输入源索引
+ * @param {string} sourceField 源字段名
+ * @param {string} targetField 目标字段名
+ * @returns {HTMLElement} 字段映射项元素
+ */
+function createMappingItem(inputIndex, sourceField = '', targetField = '') {
+  const item = document.createElement('div');
+  item.className = 'field-mapping-item';
+  item.dataset.inputIndex = inputIndex;
+  
+  item.innerHTML = `
+    <div style="flex:1;display:flex;flex-direction:column;gap:4px;">
+      <div class="mapping-source-label">输入源 ${inputIndex + 1}</div>
+      <div style="display:flex;gap:8px;">
+        <input type="text" class="source-field" placeholder="源字段名" value="${sourceField}" />
+        <span style="align-self:center;color:#94a3b8;">→</span>
+        <input type="text" class="target-field" placeholder="目标字段名" value="${targetField}" />
+      </div>
+    </div>
+    <button class="btn-remove-mapping" type="button" title="删除映射">&times;</button>
+  `;
+  
+  item.querySelector('.btn-remove-mapping').addEventListener('click', () => {
+    item.remove();
+  });
+  
+  return item;
+}
+
+/**
+ * 更新字段映射 UI
+ * @param {Array} existingMappings 已存在的字段映射规则
+ */
+function updateFieldMappingsUI(existingMappings = []) {
+  dataMergeFieldMappings.innerHTML = '';
+  const inputCount = parseInt(dataMergeInputCount.value, 10);
+  
+  for (let i = 0; i < inputCount; i++) {
+    const mappingsForInput = existingMappings.filter(m => m.inputIndex === i);
+    
+    if (mappingsForInput.length === 0) {
+      const item = createMappingItem(i);
+      dataMergeFieldMappings.appendChild(item);
+    } else {
+      mappingsForInput.forEach(mapping => {
+        const item = createMappingItem(i, mapping.sourceField, mapping.targetField);
+        dataMergeFieldMappings.appendChild(item);
+      });
+    }
+  }
+  
+  const addContainer = document.createElement('div');
+  addContainer.className = 'field-mapping-add-container';
+  addContainer.style.cssText = 'display:flex;gap:8px;margin-top:8px;align-items:flex-end;';
+  
+  const selectInput = document.createElement('select');
+  selectInput.className = 'add-mapping-select';
+  selectInput.style.cssText = 'flex:1;padding:8px;border:1px solid #e2e8f0;border-radius:6px;font-size:0.85rem;';
+  
+  for (let i = 0; i < inputCount; i++) {
+    const option = document.createElement('option');
+    option.value = String(i);
+    option.textContent = `输入源 ${i + 1}`;
+    selectInput.appendChild(option);
+  }
+  
+  const addButton = document.createElement('button');
+  addButton.className = 'btn-add-mapping';
+  addButton.type = 'button';
+  addButton.textContent = '+ 添加';
+  addButton.style.cssText = 'flex:none;padding:8px 16px;white-space:nowrap;';
+  addButton.addEventListener('click', () => {
+    const selectedIndex = parseInt(selectInput.value, 10);
+    const item = createMappingItem(selectedIndex);
+    dataMergeFieldMappings.insertBefore(item, addContainer);
+  });
+  
+  addContainer.appendChild(selectInput);
+  addContainer.appendChild(addButton);
+  dataMergeFieldMappings.appendChild(addContainer);
+}
+
+/**
+ * 从 UI 收集字段映射数据
+ * @returns {Array} 字段映射规则数组
+ */
+function collectFieldMappings() {
+  const mappings = [];
+  const items = dataMergeFieldMappings.querySelectorAll('.field-mapping-item');
+  
+  items.forEach(item => {
+    const inputIndex = parseInt(item.dataset.inputIndex, 10);
+    const sourceField = item.querySelector('.source-field').value.trim();
+    const targetField = item.querySelector('.target-field').value.trim();
+    
+    if (sourceField && targetField) {
+      mappings.push({
+        inputIndex: inputIndex,
+        sourceField: sourceField,
+        targetField: targetField
+      });
+    }
+  });
+  
+  return mappings;
+}
+
+/**
+ * 保存数据合并配置
+ */
+function saveDataMergeConfig() {
+  if (!state.dataMergeConfigNodeId) {
+    hideDataMergeModal();
+    return;
+  }
+  
+  const node = state.nodes.find(n => n.id === state.dataMergeConfigNodeId);
+  if (!node) {
+    hideDataMergeModal();
+    return;
+  }
+  
+  const oldInputCount = node.data.inputCount || 2;
+  const newInputCount = parseInt(dataMergeInputCount.value, 10);
+  
+  node.data.inputCount = newInputCount;
+  node.data.mergeMode = dataMergeMode.value;
+  node.data.objectMergeMode = dataMergeObjectMode.value;
+  node.data.fieldMappings = collectFieldMappings();
+  
+  if (oldInputCount !== newInputCount) {
+    state.connections = state.connections.filter(c => {
+      if (c.to !== node.id) return true;
+      if (!c.targetHandle) return true;
+      const inputIndex = parseInt(c.targetHandle.split('-')[1], 10);
+      return inputIndex < newInputCount;
+    });
+    
+    render();
+  } else {
+    const el = document.getElementById(node.id);
+    if (el) {
+      const btn = el.querySelector('button');
+      const modeText = node.data.mergeMode === 'array-concat' ? '数组拼接' : '对象合并';
+      if (btn) btn.textContent = `配置: ${node.data.inputCount}个输入 / ${modeText}`;
+      
+      const infoText = el.querySelector('.node-merge-info');
+      if (infoText) {
+        const strategyText = node.data.objectMergeMode === 'deep' ? '深合并' : '浅合并';
+        infoText.textContent = `策略: ${node.data.mergeMode === 'object-merge' ? strategyText : '顺序拼接'}`;
+      }
+    }
+    updateConnections();
+  }
+  
+  showToast('配置已保存');
+  hideDataMergeModal();
 }
 
 // Run init
