@@ -79,6 +79,14 @@
             </div>
           </div>
 
+          <div class="component-card" draggable="true" data-type="merge">
+            <div class="comp-icon merge">🔗</div>
+            <div class="comp-info">
+              <span class="comp-title">数据合并</span>
+              <span class="comp-desc">聚合多源数据合并输出</span>
+            </div>
+          </div>
+
           <div class="component-card" draggable="true" data-type="output">
             <div class="comp-icon out">👁️</div>
             <div class="comp-info">
@@ -126,6 +134,40 @@
       <div class="modal-actions">
         <button id="btn-modal-cancel" class="btn text">取消</button>
         <button id="btn-modal-save" class="btn primary">保存配置</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal for Merge Node Configuration -->
+  <div id="merge-modal-overlay" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>配置数据合并</h3>
+        <button class="close-merge-modal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <!-- 合并模式选择 -->
+        <div class="form-group">
+          <label for="merge-mode">合并模式</label>
+          <select id="merge-mode">
+            <option value="concat">数组拼接</option>
+            <option value="merge">对象合并</option>
+          </select>
+        </div>
+        <!-- 输入源数量 -->
+        <div class="form-group">
+          <label for="merge-input-count">输入源数量 (2-5)</label>
+          <input type="number" id="merge-input-count" min="2" max="5" value="2" placeholder="2~5">
+        </div>
+        <!-- 字段映射规则容器 -->
+        <div class="form-group">
+          <label>字段映射规则</label>
+          <div id="merge-field-mappings" class="merge-field-mappings"></div>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button id="btn-merge-modal-cancel" class="btn text">取消</button>
+        <button id="btn-merge-modal-save" class="btn primary">保存配置</button>
       </div>
     </div>
   </div>

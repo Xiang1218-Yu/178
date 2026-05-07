@@ -261,6 +261,11 @@ body {
   color: #be123c;
 }
 
+.comp-icon.merge {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
 .comp-icon.out {
   background: #ecfdf5;
   color: #047857;
@@ -607,4 +612,81 @@ body {
 #confirm-message {
   color: var(--text-light);
   line-height: 1.5;
+}
+
+/* --- Merge Node Styles --- */
+
+/* 数据合并节点内部信息展示 */
+.merge-node-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.merge-info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.8rem;
+  color: var(--text-light);
+}
+
+.merge-info-row strong {
+  color: var(--text-main);
+}
+
+/* 数据合并节点多输入端口样式 */
+.merge-input-port {
+  background: #3b82f6;
+  border-color: white;
+  width: 10px;
+  height: 10px;
+}
+
+.merge-input-port:hover {
+  background: #1d4ed8;
+  transform: translateY(-50%) scale(1.3);
+}
+
+/* 字段映射规则容器 */
+.merge-field-mappings {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.merge-mapping-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.merge-mapping-label {
+  font-size: 0.8rem;
+  color: var(--text-light);
+  white-space: nowrap;
+  min-width: 80px;
+}
+
+.merge-mapping-input {
+  flex: 1;
+  padding: 6px 8px;
+  font-size: 0.8rem;
+}
+
+/* 数据合并节点的端口序号标签 */
+.port-label {
+  position: absolute;
+  left: 14px;
+  font-size: 0.65rem;
+  color: var(--text-light);
+  background: rgba(255, 255, 255, 0.9);
+  padding: 1px 4px;
+  border-radius: 3px;
+  pointer-events: none;
+  white-space: nowrap;
 }
