@@ -10,10 +10,14 @@ const state = {
   draggingNode: null,
   dragOffset: { x: 0, y: 0 },
 
+  // Merge Modal State
+  mergeConfigNodeId: null,
+
   connecting: {
     active: false,
     startNodeId: null,
     sourceHandle: null, // 'default', 'true', 'false'
+    targetHandle: null, // 'in-0', 'in-1', ... for merge ports
     startX: 0,
     startY: 0
   }
@@ -40,6 +44,15 @@ const confirmMsg = document.getElementById('confirm-message');
 const btnConfirmOk = document.getElementById('btn-confirm-ok');
 const btnConfirmCancel = document.getElementById('btn-confirm-cancel');
 const closeConfirm = document.querySelector('.close-confirm');
+
+// Merge Modal Elements
+const mergeModal = document.getElementById('merge-modal-overlay');
+const mergeModeSelect = document.getElementById('merge-mode');
+const mergeInputCount = document.getElementById('merge-input-count');
+const mergeFieldMappings = document.getElementById('merge-field-mappings');
+const btnMergeModalCancel = document.getElementById('btn-merge-modal-cancel');
+const btnMergeModalSave = document.getElementById('btn-merge-modal-save');
+const closeMergeModal = document.querySelector('.close-merge-modal');
 
 // --- Helper Functions ---
 const generateId = () => `node-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
@@ -117,6 +130,13 @@ function setupEventListeners() {
   });
   btnConfirmCancel.addEventListener('click', hideConfirm);
   closeConfirm.addEventListener('click', hideConfirm);
+
+  // Merge Modal Listeners
+  btnMergeModalCancel.addEventListener('click', hideMergeModal);
+  closeMergeModal.addEventListener('click', hideMergeModal);
+  btnMergeModalSave.addEventListener('click', saveMergeConfig);
+  mergeInputCount.addEventListener('input', renderMergeFieldMappings);
+  mergeModeSelect.addEventListener('change', renderMergeFieldMappings);
 }
 
 // --- Core Logic: Nodes ---
@@ -140,6 +160,11 @@ function createNode(type, x, y, id = null, data = {}) {
   } else if (type === 'judge') {
     node.data.operator = node.data.operator || '>';
     node.data.threshold = node.data.threshold || 0;
+  } else if (type === 'merge') {
+    // 数据合并组件：初始化合并模式、输入端口数量和字段映射规则
+    node.data.mergeMode = node.data.mergeMode || 'concat';
+    node.data.inputCount = node.data.inputCount || 2;
+    node.data.fieldMappings = node.data.fieldMappings || [];
   }
 
   state.nodes.push(node);
@@ -158,6 +183,7 @@ function renderNode(node) {
     'input-num': { icon: '#', title: '数字输入' },
     'input-text': { icon: 'Aa', title: '文字输入' },
     'judge': { icon: '⚙️', title: '逻辑判断' },
+    'merge': { icon: '🔗', title: '数据合并' },
     'output': { icon: '👁️', title: '输出结果' }
   };
   const info = meta[node.type];
@@ -218,6 +244,23 @@ function renderNode(node) {
     btn.textContent = `配置: ${node.data.operator} ${node.data.threshold}`;
     btn.addEventListener('click', () => openJudgeConfig(node));
     body.appendChild(btn);
+  } else if (node.type === 'merge') {
+    // 数据合并组件主体：显示合并模式、输入源数量及配置按钮
+    const modeLabel = node.data.mergeMode === 'concat' ? '数组拼接' : '对象合并';
+    const infoDiv = document.createElement('div');
+    infoDiv.className = 'merge-node-info';
+    infoDiv.innerHTML = `
+      <div class="merge-info-row"><span>模式:</span> <strong>${modeLabel}</strong></div>
+      <div class="merge-info-row"><span>输入源:</span> <strong>${node.data.inputCount} 个</strong></div>
+    `;
+    body.appendChild(infoDiv);
+
+    const btn = document.createElement('button');
+    btn.className = 'btn secondary';
+    btn.style.width = '100%';
+    btn.textContent = '配置合并规则';
+    btn.addEventListener('click', () => openMergeConfig(node));
+    body.appendChild(btn);
   } else if (node.type === 'output') {
     const resultBox = document.createElement('div');
     resultBox.className = 'node-result';
@@ -230,10 +273,34 @@ function renderNode(node) {
 
   // Input Port (Left) - Not for sources
   if (node.type !== 'input-num' && node.type !== 'input-text') {
-    const inPort = document.createElement('div');
-    inPort.className = 'port input-port';
-    inPort.dataset.nodeId = node.id;
-    el.appendChild(inPort);
+    if (node.type === 'merge') {
+      // 数据合并组件：渲染多个输入端口，纵向均匀分布
+      const inputCount = node.data.inputCount || 2;
+      for (let i = 0; i < inputCount; i++) {
+        const inPort = document.createElement('div');
+        inPort.className = 'port input-port merge-input-port';
+        inPort.dataset.nodeId = node.id;
+        inPort.dataset.handle = `in-${i}`;
+        inPort.title = `输入源 ${i + 1}`;
+        // 动态计算端口的纵向位置百分比
+        const topPercent = inputCount === 1 ? 50 : (20 + (60 * i / (inputCount - 1)));
+        inPort.style.top = `${topPercent}%`;
+        el.appendChild(inPort);
+
+        // 端口序号标签
+        const portLabel = document.createElement('div');
+        portLabel.className = 'port-label';
+        portLabel.style.top = `${topPercent}%`;
+        portLabel.style.transform = 'translateY(-50%)';
+        portLabel.textContent = `${i + 1}`;
+        el.appendChild(portLabel);
+      }
+    } else {
+      const inPort = document.createElement('div');
+      inPort.className = 'port input-port';
+      inPort.dataset.nodeId = node.id;
+      el.appendChild(inPort);
+    }
   }
 
   // Output Ports (Right/Branching)
@@ -290,7 +357,7 @@ function startConnection(nodeId, e, handleType) {
   state.connecting.startY = e.clientY - rect.top;
 }
 
-function completeConnection(targetNodeId) {
+function completeConnection(targetNodeId, targetHandle = null) {
   if (state.connecting.active && state.connecting.startNodeId !== targetNodeId) {
     const targetNode = state.nodes.find(n => n.id === targetNodeId);
     if (!targetNode) return;
@@ -303,11 +370,25 @@ function completeConnection(targetNodeId) {
       return;
     }
 
+    // 数据合并组件：限制每个输入端口只能接收一条连接
+    if (targetNode.type === 'merge' && targetHandle) {
+      const portOccupied = state.connections.find(c =>
+        c.to === targetNodeId && c.targetHandle === targetHandle
+      );
+      if (portOccupied) {
+        showToast('该输入端口已被连接');
+        state.connecting.active = false;
+        renderTempLine(null, null);
+        return;
+      }
+    }
+
     // Check if exists (considering handle)
     const exists = state.connections.find(c =>
       c.from === state.connecting.startNodeId &&
       c.to === targetNodeId &&
-      c.sourceHandle === state.connecting.sourceHandle
+      c.sourceHandle === state.connecting.sourceHandle &&
+      c.targetHandle === targetHandle
     );
 
     if (!exists) {
@@ -315,7 +396,8 @@ function completeConnection(targetNodeId) {
         id: `conn-${Date.now()}`,
         from: state.connecting.startNodeId,
         to: targetNodeId,
-        sourceHandle: state.connecting.sourceHandle
+        sourceHandle: state.connecting.sourceHandle,
+        targetHandle: targetHandle
       });
       updateConnections();
     } else {
@@ -376,7 +458,10 @@ function handleMouseUp(e) {
     const nodeEl = elUnder?.closest('.node');
 
     if (nodeEl) {
-      completeConnection(nodeEl.id);
+      // 检测是否点击在数据合并组件的某个输入端口上
+      const portEl = elUnder?.closest('.merge-input-port');
+      const targetHandle = portEl ? portEl.dataset.handle : null;
+      completeConnection(nodeEl.id, targetHandle);
     } else {
       state.connecting.active = false;
       renderTempLine(null, null);
@@ -399,7 +484,8 @@ function updateConnections() {
     if (!fromNode || !toNode) return;
 
     const startPoint = getPortPosition(conn.from, 'output', conn.sourceHandle);
-    const endPoint = getPortPosition(conn.to, 'input');
+    // 数据合并组件：使用targetHandle定位具体的输入端口
+    const endPoint = getPortPosition(conn.to, 'input', conn.targetHandle || null);
 
     if (startPoint && endPoint) {
       const path = createPath(startPoint.x, startPoint.y, endPoint.x, endPoint.y);
@@ -432,6 +518,10 @@ function getPortPosition(nodeId, type, handle = null) {
   let selector = `.${type}-port`;
   // Narrow down if handle is specified and not default
   if (type === 'output' && handle && handle !== 'default') {
+    selector += `[data-handle="${handle}"]`;
+  }
+  // 数据合并组件：根据targetHandle定位具体的输入端口
+  if (type === 'input' && handle) {
     selector += `[data-handle="${handle}"]`;
   }
 
@@ -510,7 +600,14 @@ function runWorkflow() {
 
         outNode.data.result = displayVal;
         const el = document.getElementById(`res-${outNode.id}`);
-        if (el) el.textContent = String(displayVal);
+        if (el) {
+          // 对象和数组使用JSON格式化展示，基础类型直接转字符串
+          if (displayVal !== null && displayVal !== undefined && typeof displayVal === 'object') {
+            el.textContent = JSON.stringify(displayVal, null, 2);
+          } else {
+            el.textContent = String(displayVal);
+          }
+        }
       });
       showToast('运行完成');
     }, 100);
@@ -531,6 +628,11 @@ function evaluateNode(nodeId, visited = new Set()) {
   // 1. Inputs: Return raw value
   if (node.type === 'input-num' || node.type === 'input-text') {
     return node.data.value;
+  }
+
+  // 数据合并组件：收集所有输入端口的连接数据并合并
+  if (node.type === 'merge') {
+    return evaluateMergeNode(node, visited);
   }
 
   // 2. Find input source connection
@@ -590,6 +692,78 @@ function evaluateNode(nodeId, visited = new Set()) {
   }
 
   return inputData;
+}
+
+/**
+ * 数据合并组件的求值逻辑：
+ * 根据合并模式（数组拼接或对象合并）和字段映射规则，
+ * 将多个输入源的数据合并为单一输出
+ */
+function evaluateMergeNode(node, visited) {
+  const inputCount = node.data.inputCount || 2;
+  const mergeMode = node.data.mergeMode || 'concat';
+  const fieldMappings = node.data.fieldMappings || [];
+
+  // 收集各输入端口的数据
+  const inputValues = [];
+  for (let i = 0; i < inputCount; i++) {
+    const portHandle = `in-${i}`;
+    const conn = state.connections.find(c => c.to === node.id && c.targetHandle === portHandle);
+    if (conn) {
+      // 为每个输入源创建独立的visited副本，避免不同分支间互相干扰
+      const branchVisited = new Set(visited);
+      const data = evaluateNode(conn.from, branchVisited);
+
+      // 处理来自逻辑判断组件的数据，提取实际值
+      let actualData = data;
+      if (data && typeof data === 'object' && 'isTrue' in data) {
+        // 如果该连接来自判断组件的分支端口，只有条件成立时才取值
+        if (conn.sourceHandle === 'true') {
+          actualData = data.isTrue ? data.value : null;
+        } else if (conn.sourceHandle === 'false') {
+          actualData = !data.isTrue ? data.value : null;
+        } else {
+          actualData = data.value;
+        }
+      }
+
+      inputValues.push(actualData);
+    } else {
+      inputValues.push(null);
+    }
+  }
+
+  // 检查是否有至少一个非空输入
+  const hasValidInput = inputValues.some(v => v !== null && v !== undefined);
+  if (!hasValidInput) return null;
+
+  // 根据合并模式执行合并操作
+  if (mergeMode === 'concat') {
+    // 数组拼接模式：将所有输入值拼接为一个数组
+    return inputValues.filter(v => v !== null && v !== undefined);
+  }
+
+  if (mergeMode === 'merge') {
+    // 对象合并模式：依据字段映射规则将输入数据合并为一个对象
+    const result = {};
+    for (let i = 0; i < inputValues.length; i++) {
+      const inputValue = inputValues[i];
+      const mapping = fieldMappings[i];
+
+      if (inputValue === null || inputValue === undefined) continue;
+
+      if (mapping && mapping.targetField) {
+        // 有映射规则：将输入值赋值到指定的目标字段名
+        result[mapping.targetField] = inputValue;
+      } else {
+        // 无映射规则：使用默认字段名 input0, input1, ...
+        result[`input${i}`] = inputValue;
+      }
+    }
+    return result;
+  }
+
+  return null;
 }
 
 // --- Persistence ---
@@ -659,6 +833,128 @@ function saveNodeConfig() {
     }
   }
   hideModal();
+}
+
+// --- Merge Modal Handlers ---
+
+/**
+ * 打开数据合并组件的配置弹窗
+ * 将当前节点的配置数据回显到表单中
+ */
+function openMergeConfig(node) {
+  state.mergeConfigNodeId = node.id;
+
+  // 回显合并模式
+  mergeModeSelect.value = node.data.mergeMode || 'concat';
+
+  // 回显输入源数量，限制在2~5范围内
+  const count = Math.max(2, Math.min(5, node.data.inputCount || 2));
+  mergeInputCount.value = count;
+
+  // 渲染字段映射规则输入行
+  renderMergeFieldMappings();
+
+  // 回显已有的字段映射值
+  const mappings = node.data.fieldMappings || [];
+  const mappingInputs = mergeFieldMappings.querySelectorAll('.merge-mapping-input');
+  mappingInputs.forEach((input, idx) => {
+    if (mappings[idx] && mappings[idx].targetField) {
+      input.value = mappings[idx].targetField;
+    }
+  });
+
+  mergeModal.classList.remove('hidden');
+}
+
+/** 关闭数据合并配置弹窗 */
+function hideMergeModal() {
+  mergeModal.classList.add('hidden');
+  state.mergeConfigNodeId = null;
+}
+
+/**
+ * 根据当前输入源数量动态渲染字段映射规则的输入行
+ * 仅在对象合并模式下显示字段映射输入框
+ */
+function renderMergeFieldMappings() {
+  const count = Math.max(2, Math.min(5, parseInt(mergeInputCount.value) || 2));
+  const isMergeMode = mergeModeSelect.value === 'merge';
+  mergeFieldMappings.innerHTML = '';
+
+  if (!isMergeMode) {
+    // 数组拼接模式不需要字段映射
+    mergeFieldMappings.innerHTML = '<span style="color:var(--text-light);font-size:0.8rem;">数组拼接模式无需字段映射</span>';
+    return;
+  }
+
+  // 为每个输入源生成一行映射规则输入
+  for (let i = 0; i < count; i++) {
+    const row = document.createElement('div');
+    row.className = 'merge-mapping-row';
+
+    const label = document.createElement('span');
+    label.className = 'merge-mapping-label';
+    label.textContent = `输入源 ${i + 1} →`;
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'merge-mapping-input node-input';
+    input.placeholder = `字段名 (默认: input${i})`;
+    input.dataset.portIndex = i;
+
+    row.appendChild(label);
+    row.appendChild(input);
+    mergeFieldMappings.appendChild(row);
+  }
+}
+
+/**
+ * 保存数据合并组件的配置
+ * 将弹窗中的合并模式、输入源数量和字段映射规则写入节点数据，
+ * 并重新渲染节点以更新端口和界面
+ */
+function saveMergeConfig() {
+  if (!state.mergeConfigNodeId) return;
+
+  const node = state.nodes.find(n => n.id === state.mergeConfigNodeId);
+  if (!node) return;
+
+  // 读取合并模式
+  const newMode = mergeModeSelect.value;
+  // 读取输入源数量并限制在2~5范围
+  const newCount = Math.max(2, Math.min(5, parseInt(mergeInputCount.value) || 2));
+
+  // 读取字段映射规则
+  const newMappings = [];
+  const mappingInputs = mergeFieldMappings.querySelectorAll('.merge-mapping-input');
+  mappingInputs.forEach((input) => {
+    const targetField = input.value.trim();
+    newMappings.push({
+      targetField: targetField || null
+    });
+  });
+
+  // 更新节点数据
+  node.data.mergeMode = newMode;
+  node.data.inputCount = newCount;
+  node.data.fieldMappings = newMappings;
+
+  // 清理不再需要的旧输入端口连接
+  state.connections = state.connections.filter(conn => {
+    if (conn.to !== node.id) return true;
+    if (!conn.targetHandle) return true;
+    // 解析端口号，如果端口号超出新的输入源数量则删除
+    const portIndex = parseInt(conn.targetHandle.replace('in-', ''));
+    return portIndex < newCount;
+  });
+
+  // 重新渲染节点以更新端口数量和界面显示
+  const el = document.getElementById(node.id);
+  if (el) el.remove();
+  renderNode(node);
+  updateConnections();
+
+  hideMergeModal();
 }
 
 // Run init
