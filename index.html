@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FutureFlow Workflow Editor</title>
+  <meta name="description" content="A futuristic visual workflow editor">
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <!-- Styles -->
+  <link rel="stylesheet" href="/src/style.css">
+</head>
+
+<body>
+  <div id="app">
+    <!-- Header / Toolbar -->
+    <header class="toolbar">
+      <div class="toolbar-left">
+        <div class="brand">
+          <div class="logo-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect>
+              <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path>
+              <line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line>
+            </svg>
+          </div>
+          <h1>FutureFlow</h1>
+        </div>
+        <div class="separator"></div>
+        <button id="btn-new" class="btn secondary">
+          <span class="icon">📄</span> 新建
+        </button>
+        <button id="btn-load" class="btn secondary">
+          <span class="icon">📂</span> 读取
+        </button>
+      </div>
+      <div class="actions">
+        <button id="btn-save" class="btn primary">
+          <span class="icon">💾</span> 保存
+        </button>
+        <button id="btn-run" class="btn accent">
+          <span class="icon">▶️</span> 运行
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Layout -->
+    <main class="editor-layout">
+      <!-- Sidebar: Component Palette -->
+      <aside class="sidebar">
+        <div class="sidebar-header">
+          <h2>组件库</h2>
+        </div>
+        <div class="components-list" id="palette">
+          <div class="component-card" draggable="true" data-type="input-num">
+            <div class="comp-icon num">#</div>
+            <div class="comp-info">
+              <span class="comp-title">数字输入</span>
+              <span class="comp-desc">输入数字类型的值</span>
+            </div>
+          </div>
+
+          <div class="component-card" draggable="true" data-type="input-text">
+            <div class="comp-icon text">Aa</div>
+            <div class="comp-info">
+              <span class="comp-title">文字输入</span>
+              <span class="comp-desc">输入字符串文本</span>
+            </div>
+          </div>
+
+          <div class="component-card" draggable="true" data-type="judge">
+            <div class="comp-icon logic">⚙️</div>
+            <div class="comp-info">
+              <span class="comp-title">逻辑判断</span>
+              <span class="comp-desc">比较数值大小</span>
+            </div>
+          </div>
+
+          <div class="component-card" draggable="true" data-type="output">
+            <div class="comp-icon out">👁️</div>
+            <div class="comp-info">
+              <span class="comp-title">输出结果</span>
+              <span class="comp-desc">展示最终运行结果</span>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Workspace: Canvas -->
+      <section class="workspace" id="workspace">
+        <div class="canvas-bg"></div>
+        <!-- SVG Layer for connections (Lines) -->
+        <svg id="connections-layer"></svg>
+        <!-- Nodes Container -->
+        <div id="nodes-container"></div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Modal for Node Configuration (Judge) -->
+  <div id="modal-overlay" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>配置逻辑</h3>
+        <button class="close-modal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="judge-operator">操作符</label>
+          <select id="judge-operator">
+            <option value=">">大于 (>)</option>
+            <option value="<">小于 (&lt;)</option>
+            <option value="==">等于 (==)</option>
+            <option value=">=">大于等于 (>=)</option>
+            <option value="<=">小于等于 (&lt;=)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="judge-value">阈值</label>
+          <input type="number" id="judge-value" placeholder="输入数字...">
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button id="btn-modal-cancel" class="btn text">取消</button>
+        <button id="btn-modal-save" class="btn primary">保存配置</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Confirmation Modal -->
+  <div id="confirm-modal-overlay" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="confirm-title">确认操作</h3>
+        <button class="close-confirm">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p id="confirm-message">确定要执行此操作吗？</p>
+      </div>
+      <div class="modal-actions">
+        <button id="btn-confirm-cancel" class="btn text">取消</button>
+        <button id="btn-confirm-ok" class="btn primary">确定</button>
+      </div>
+    </div>
+  </div>
+  <div id="toast" class="toast hidden">工作流已保存</div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+
+</html>
